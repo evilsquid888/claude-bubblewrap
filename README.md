@@ -48,6 +48,42 @@ sudo dnf install bubblewrap    # Fedora/RHEL
 npm install -g @anthropic-ai/claude-code
 ```
 
+## AppArmor setup (Ubuntu/Debian)
+
+Modern Ubuntu kernels block unprivileged user namespaces via AppArmor by default. Since bubblewrap requires user namespaces to function, you need to add an AppArmor profile that allows `bwrap` specifically. Without this, you'll get `bwrap: setting up uid map: Permission denied`.
+
+Create the profile:
+
+```bash
+sudo tee /etc/apparmor.d/bwrap <<'EOF'
+abi <abi/4.0>,
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+}
+EOF
+
+sudo apparmor_parser -r /etc/apparmor.d/bwrap
+```
+
+This grants **only** `/usr/bin/bwrap` permission to create user namespaces. All other programs remain blocked. The global `apparmor_restrict_unprivileged_userns=1` setting stays on.
+
+### What this enables and the security tradeoff
+
+User namespaces let a process become "root" inside an isolated namespace. Normally AppArmor blocks this because kernel subsystems reachable from within a namespace (mount, netfilter, eBPF) have historically been the entry point for privilege escalation CVEs (e.g. CVE-2022-0185, CVE-2023-32233, CVE-2024-1086). By allowing bwrap to create namespaces, you're expanding the kernel attack surface — but only for bwrap, not for every binary on the system.
+
+The practical risk is low: exploiting this requires an attacker who already has local code execution on your machine **and** an unpatched kernel namespace vulnerability. If an attacker already has local access as your user, they can already read your files, steal your keys, and persist in your shell profile. The namespace path just adds a theoretical route to root on top of that.
+
+Running Claude Code with dangerous permissions **without** this sandbox gives it unrestricted access to your entire filesystem, SSH keys, and credentials. The sandbox significantly reduces that blast radius. The tradeoff — a small increase in kernel attack surface for a large reduction in filesystem exposure — nets out positive.
+
+### Checking if you need this
+
+```bash
+# If this returns 1, you need the AppArmor profile above
+sysctl kernel.apparmor_restrict_unprivileged_userns
+```
+
+If it returns 0 or the sysctl doesn't exist, bwrap will work without changes.
+
 ## Usage
 
 ```bash
