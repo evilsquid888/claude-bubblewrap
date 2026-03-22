@@ -103,27 +103,34 @@ BWRAP_ARGS+=(--proc /proc)
 BWRAP_ARGS+=(--dev /dev)
 BWRAP_ARGS+=(--tmpfs /run)
 
-# Read-only system mounts
+# Read-only system mounts (non-home paths only; home-relative come after tmpfs)
 for path in "${RO_PATHS[@]}"; do
-    if [[ -e "$path" ]]; then
+    if [[ -e "$path" && "$path" != "$HOME"* ]]; then
         BWRAP_ARGS+=(--ro-bind "$path" "$path")
     fi
 done
 
-# Read-write mounts for project and config
+# Read-write mounts for non-home paths
 for path in "${RW_PATHS[@]}"; do
-    if [[ -e "$path" ]]; then
-        BWRAP_ARGS+=(--bind "$path" "$path")
-    elif [[ "$path" == "/tmp" ]]; then
+    if [[ "$path" == "/tmp" ]]; then
         BWRAP_ARGS+=(--tmpfs /tmp)
+    elif [[ -e "$path" && "$path" != "$HOME"* ]]; then
+        BWRAP_ARGS+=(--bind "$path" "$path")
     fi
 done
 
-# Create home dir structure (so claude doesn't error on missing $HOME)
+# Create home dir structure FIRST (so claude doesn't error on missing $HOME)
+# This MUST come before all home-relative bind mounts, otherwise tmpfs wipes them.
 BWRAP_ARGS+=(--tmpfs "$HOME")
 
-# Re-mount the RW paths INTO the tmpfs home
-# (tmpfs wipes the home, so we layer the bind mounts on top)
+# Layer read-only home-relative paths on top of the tmpfs home
+for path in "${RO_PATHS[@]}"; do
+    if [[ -e "$path" && "$path" == "$HOME"* ]]; then
+        BWRAP_ARGS+=(--ro-bind "$path" "$path")
+    fi
+done
+
+# Layer read-write home-relative paths on top of the tmpfs home
 for path in "${RW_PATHS[@]}"; do
     if [[ -e "$path" && "$path" == "$HOME"* ]]; then
         BWRAP_ARGS+=(--bind "$path" "$path")
