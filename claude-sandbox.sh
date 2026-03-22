@@ -32,8 +32,6 @@ RW_PATHS=(
     "$HOME/.claude"
     "$HOME/.claude.json"
     "$HOME/.config/claude"
-    "$HOME/.aws"
-    "$HOME/.ssh"
     "$HOME/.gitconfig"
     "$HOME/.config/git"
     "$HOME/.npm-global"
@@ -51,6 +49,8 @@ RO_PATHS=(
     "/bin"
     "/sbin"
     "/opt"
+    "$HOME/.ssh"
+    "$HOME/.aws"
     "$HOME/.nvm"
     "$HOME/.fnm"
     "$HOME/.local/bin"
@@ -130,6 +130,13 @@ for path in "${RW_PATHS[@]}"; do
     fi
 done
 
+# Re-mount the RO paths that live under $HOME
+for path in "${RO_PATHS[@]}"; do
+    if [[ -e "$path" && "$path" == "$HOME"* ]]; then
+        BWRAP_ARGS+=(--ro-bind "$path" "$path")
+    fi
+done
+
 # Also bind the project dir (may be outside $HOME)
 BWRAP_ARGS+=(--bind "$PROJECT_DIR" "$PROJECT_DIR")
 
@@ -168,7 +175,7 @@ echo "║  Claude Code — External Bubblewrap Sandbox          ║"
 echo "╠══════════════════════════════════════════════════════╣"
 echo "║  Project:  $(basename "$PROJECT_DIR")"
 echo "║  Network:  OPEN (no restrictions)"
-echo "║  FS Write: project + ~/.aws ~/.ssh ~/.claude /tmp"
+echo "║  FS Write: project + ~/.claude /tmp"
 echo "║  FS Read:  system paths (read-only)"
 echo "║  Blocked:  gnupg private keys, password store, kube"
 echo "╚══════════════════════════════════════════════════════╝"
