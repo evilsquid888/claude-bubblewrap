@@ -37,7 +37,6 @@ RW_PATHS=(
     "$HOME/.npm-global"
     "$HOME/.npm"
     "$HOME/.local/share/claude-code"
-    "/tmp"
 )
 
 # Paths Claude gets read-only access to (system stuff it needs to function)
@@ -110,11 +109,12 @@ for path in "${RO_PATHS[@]}"; do
     fi
 done
 
+# Private /tmp (not shared with host)
+BWRAP_ARGS+=(--tmpfs /tmp)
+
 # Read-write mounts for non-home paths
 for path in "${RW_PATHS[@]}"; do
-    if [[ "$path" == "/tmp" ]]; then
-        BWRAP_ARGS+=(--tmpfs /tmp)
-    elif [[ -e "$path" && "$path" != "$HOME"* ]]; then
+    if [[ -e "$path" && "$path" != "$HOME"* ]]; then
         BWRAP_ARGS+=(--bind "$path" "$path")
     fi
 done
@@ -182,7 +182,8 @@ echo "║  Claude Code — External Bubblewrap Sandbox          ║"
 echo "╠══════════════════════════════════════════════════════╣"
 echo "║  Project:  $(basename "$PROJECT_DIR")"
 echo "║  Network:  OPEN (no restrictions)"
-echo "║  FS Write: project + ~/.claude /tmp"
+echo "║  FS Write: project + ~/.claude"
+echo "║  /tmp:     private tmpfs (not shared with host)"
 echo "║  FS Read:  system paths (read-only)"
 echo "║  Blocked:  gnupg private keys, password store, kube"
 echo "╚══════════════════════════════════════════════════════╝"
