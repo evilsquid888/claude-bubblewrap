@@ -89,7 +89,8 @@ if ! command -v claude &>/dev/null; then
     exit 1
 fi
 
-CLAUDE_BIN="$(command -v claude)"
+# Resolve claude binary — follow symlinks so bwrap can find the real executable
+CLAUDE_BIN="$(readlink -f "$(command -v claude)")"
 
 # ── Build bwrap arguments ─────────────────────────────────────────
 BWRAP_ARGS=()
@@ -155,6 +156,13 @@ done
 
 # Set working directory
 BWRAP_ARGS+=(--chdir "$PROJECT_DIR")
+
+# SSH agent forwarding — needed for git operations over SSH
+if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
+    SSH_AGENT_DIR="$(dirname "$SSH_AUTH_SOCK")"
+    BWRAP_ARGS+=(--bind "$SSH_AGENT_DIR" "$SSH_AGENT_DIR")
+    BWRAP_ARGS+=(--setenv SSH_AUTH_SOCK "$SSH_AUTH_SOCK")
+fi
 
 # Pass through essential environment
 BWRAP_ARGS+=(--setenv HOME "$HOME")

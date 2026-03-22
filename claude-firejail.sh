@@ -79,13 +79,25 @@ if ! command -v claude &>/dev/null; then
     exit 1
 fi
 
-CLAUDE_BIN="$(command -v claude)"
+# Resolve claude binary — follow symlinks so firejail can find the real executable
+CLAUDE_BIN="$(readlink -f "$(command -v claude)")"
 
 # ── Build firejail arguments ─────────────────────────────────────
 FJ_ARGS=()
 
 # No custom firejail profile — build everything from flags
 FJ_ARGS+=(--noprofile)
+
+# ── Security hardening ───────────────────────────────────────────
+FJ_ARGS+=(--caps.drop=all)          # drop all Linux capabilities
+FJ_ARGS+=(--nonewprivs)             # prevent privilege escalation via setuid
+FJ_ARGS+=(--noroot)                 # disable root inside sandbox
+FJ_ARGS+=(--seccomp)                # enable seccomp syscall filtering
+
+# Private /dev — minimal device access (null, zero, urandom, tty, pts, shm).
+# Uncomment for tighter security. Leave commented if you run headed browsers
+# (Chrome needs /dev/dri/* for GPU rendering).
+# FJ_ARGS+=(--private-dev)
 
 # Network: fully open (no restrictions)
 # To lock down network, replace with: FJ_ARGS+=(--net=none)
@@ -135,6 +147,14 @@ if [[ -n "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" && -e "${ANDROID_HOME:-${ANDRO
     FJ_ARGS+=(--read-only="$SDK_PATH")
 fi
 
+# SSH agent forwarding — needed for git operations over SSH
+if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
+    SSH_AGENT_DIR="$(dirname "$SSH_AUTH_SOCK")"
+    FJ_ARGS+=(--whitelist="$SSH_AGENT_DIR")
+    FJ_ARGS+=(--read-write="$SSH_AGENT_DIR")
+    FJ_ARGS+=(--env=SSH_AUTH_SOCK="$SSH_AUTH_SOCK")
+fi
+
 # Private writable /tmp — mounts a fresh tmpfs on /tmp.
 # Needed because --read-only=/ makes /tmp read-only and --read-write=/tmp
 # doesn't work (root-owned). --private-tmp gives a clean writable tmpfs.
@@ -175,6 +195,8 @@ echo "║  FS Write: project + ~/.claude"
 echo "║  /tmp:     private (not shared with host)"
 echo "║  FS Read:  system paths (read-only)"
 echo "║  Blocked:  gnupg private keys, password store, kube"
+echo "║  Seccomp:  enabled (syscall filtering)"
+echo "║  Caps:     all dropped"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 
