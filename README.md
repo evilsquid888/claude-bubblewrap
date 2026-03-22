@@ -1,6 +1,6 @@
 # claude-bubblewrap
 
-OS-level sandbox for running [Claude Code](https://github.com/anthropics/claude-code) with dangerous permissions safely. Uses [bubblewrap](https://github.com/containers/bubblewrap) to wrap Claude Code in an external jail that holds even if Claude reasons its way around its internal sandbox.
+OS-level sandbox for running [Claude Code](https://github.com/anthropics/claude-code) with dangerous permissions safely. Two sandbox backends: [bubblewrap](https://github.com/containers/bubblewrap) and [firejail](https://github.com/netblue30/firejail). Both wrap Claude Code in an external jail that holds even if Claude reasons its way around its internal sandbox.
 
 ## Why
 
@@ -13,7 +13,7 @@ Claude Code's built-in sandbox is a software guardrail. This is a hardware one. 
 │  Host system                     │
 │                                  │
 │  ┌────────────────────────────┐  │
-│  │  bubblewrap jail           │  │
+│  │  bwrap / firejail jail     │  │
 │  │                            │  │
 │  │  ┌──────────────────────┐  │  │
 │  │  │  Claude Code         │  │  │
@@ -33,24 +33,47 @@ Claude Code's built-in sandbox is a software guardrail. This is a hardware one. 
 └──────────────────────────────────┘
 ```
 
+## Two sandbox backends
+
+This project provides two scripts with identical security policies but different sandboxing tools:
+
+| | `claude-sandbox.sh` (bubblewrap) | `claude-firejail.sh` (firejail) |
+|---|---|---|
+| **How it sandboxes** | Builds filesystem from scratch — starts empty, explicitly mounts what's needed | Starts with full filesystem, locks it down with whitelist + read-only |
+| **Runs as** | Unprivileged user | Setuid root binary |
+| **Code size** | ~2k lines of C | ~100k lines of C |
+| **AppArmor setup** | Needs a 4-line profile added manually (see below) | Works out of the box on Ubuntu |
+| **If the tool has a bug** | Attacker stays as your user | Attacker gets real root (setuid) |
+| **CVE history** | Very few | Multiple privilege escalation CVEs |
+| **PID isolation** | Yes (`--unshare-pid`) | No (with `--noprofile`) |
+| **Home isolation** | tmpfs overlay — unlisted paths don't exist | Whitelist mode — unlisted paths are hidden |
+| **System paths** | Explicit read-only mounts | `--read-only=/` blanket, then selective write-back |
+| **Best for** | Maximum security, you control every mount | Quick setup, no kernel config needed |
+
+**Recommendation:** bubblewrap is the safer tool. Firejail is the easier one. If you're sandboxing an AI agent running arbitrary code with dangerous permissions, smaller attack surface matters — use bubblewrap if you can. Use firejail if you can't or don't want to modify AppArmor.
+
 ## Requirements
 
-- Linux (bubblewrap is Linux-only)
-- [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`)
+- Linux
 - [Claude Code](https://github.com/anthropics/claude-code) (`claude`)
+- One of:
+  - [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`)
+  - [firejail](https://github.com/netblue30/firejail) (`firejail`)
 
 ```bash
-# Install bubblewrap
-sudo apt install bubblewrap    # Debian/Ubuntu
-sudo dnf install bubblewrap    # Fedora/RHEL
+# Install sandbox tool (pick one)
+sudo apt install bubblewrap     # Debian/Ubuntu
+sudo apt install firejail       # Debian/Ubuntu
 
 # Install Claude Code
 npm install -g @anthropic-ai/claude-code
 ```
 
-## AppArmor setup (Ubuntu/Debian)
+## AppArmor setup (bubblewrap only)
 
 Modern Ubuntu kernels block unprivileged user namespaces via AppArmor by default. Since bubblewrap requires user namespaces to function, you need to add an AppArmor profile that allows `bwrap` specifically. Without this, you'll get `bwrap: setting up uid map: Permission denied`.
+
+Firejail does **not** need this — Ubuntu ships an AppArmor profile for it.
 
 Create the profile:
 
@@ -87,18 +110,20 @@ If it returns 0 or the sysctl doesn't exist, bwrap will work without changes.
 ## Usage
 
 ```bash
-# Run in current directory
-./claude-sandbox.sh
+# Bubblewrap version
+./claude-sandbox.sh                                     # current directory
+./claude-sandbox.sh /path/to/project                    # specific project
+./claude-sandbox.sh /path/to/project --print "do X"     # pass args to claude
 
-# Run in a specific project
-./claude-sandbox.sh /path/to/project
-
-# Pass arguments to claude
-./claude-sandbox.sh /path/to/project --print "do something"
-./claude-sandbox.sh . --resume
+# Firejail version
+./claude-firejail.sh                                    # current directory
+./claude-firejail.sh /path/to/project                   # specific project
+./claude-firejail.sh /path/to/project --print "do X"    # pass args to claude
 ```
 
 ## Security policy
+
+Both scripts enforce the same filesystem policy:
 
 ### Read-write (project + config)
 
@@ -133,15 +158,15 @@ If it returns 0 or the sysctl doesn't exist, bwrap will work without changes.
 
 ### Other isolation
 
-| Feature | Setting |
-|---------|---------|
-| Network | Open (no restrictions) |
-| `/tmp` | Private tmpfs (not shared with host) |
-| `/dev/shm` | Bind-mounted from host (required by Chrome/Playwright) |
-| `$HOME` | tmpfs overlay (only listed paths visible) |
-| PID namespace | Isolated (`--unshare-pid`) |
-| Parent death | Sandbox killed (`--die-with-parent`) |
-| Chrome sandbox | Kept enabled by default — disable via env vars if Chrome crashes (see script comments) |
+| Feature | bubblewrap | firejail |
+|---------|-----------|----------|
+| Network | Open | Open |
+| `/tmp` | Private tmpfs | Private (whitelist mode) |
+| `/dev/shm` | Bind-mounted from host | Available by default |
+| `$HOME` | tmpfs overlay (unlisted paths don't exist) | Whitelist (unlisted paths hidden) |
+| PID namespace | Isolated (`--unshare-pid`) | Not isolated |
+| Parent death | Sandbox killed (`--die-with-parent`) | Process outlives parent |
+| System paths | Explicit RO mounts | `--read-only=/` blanket |
 
 ### Environment variables passed through
 
@@ -149,7 +174,8 @@ If it returns 0 or the sysctl doesn't exist, bwrap will work without changes.
 - `AWS_PROFILE`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
 - `JAVA_HOME`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`
 - `ANTHROPIC_API_KEY`
-- `CHROME_DEVEL_SANDBOX`, `PLAYWRIGHT_CHROMIUM_SANDBOX` (commented out by default — uncomment if Chrome crashes)
+
+Bubblewrap version also has commented-out `CHROME_DEVEL_SANDBOX` and `PLAYWRIGHT_CHROMIUM_SANDBOX` env vars — uncomment if Chrome crashes inside the sandbox.
 
 ## Verifying the sandbox
 
@@ -166,19 +192,19 @@ The test checks filesystem write restrictions, sensitive path blocking, network 
 
 ## Customizing
 
-Edit the arrays at the top of `claude-sandbox.sh`:
+Edit the arrays at the top of either script:
 
 - **`RW_PATHS`** — directories Claude can read and write
 - **`RO_PATHS`** — directories Claude can read but not modify
-- **`DENY_PATHS`** — directories that are always hidden (overlaid with tmpfs)
+- **`DENY_PATHS`** — directories that are always hidden/blocked
 
 Paths that don't exist are silently skipped.
 
 ## Known limitations
 
-- **Network is open** — filesystem restrictions don't prevent data exfiltration. If a prompt injection convinces Claude to `curl` your SSH keys somewhere, the sandbox won't stop it. Consider `--unshare-net` if you don't need network.
-- **Linux only** — bubblewrap doesn't work on macOS or Windows. For macOS, consider `sandbox-exec` or Docker.
-- **No seccomp** — dangerous syscalls aren't filtered. Could be added with `--seccomp`.
+- **Network is open** — filesystem restrictions don't prevent data exfiltration. If a prompt injection convinces Claude to `curl` your SSH keys somewhere, the sandbox won't stop it. Consider `--unshare-net` (bwrap) or `--net=none` (firejail) if you don't need network.
+- **Linux only** — neither tool works on macOS or Windows. For macOS, consider `sandbox-exec` or Docker.
+- **No seccomp** — dangerous syscalls aren't filtered. Could be added with `--seccomp` (bwrap) or firejail's built-in seccomp support.
 
 ## License
 
