@@ -134,10 +134,10 @@ if [[ -n "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" && -e "${ANDROID_HOME:-${ANDRO
     FJ_ARGS+=(--read-only="$SDK_PATH")
 fi
 
-# Private /tmp — whitelisting mode creates a private tmpfs for /tmp.
-# Make it writable since --read-only=/ locked everything down.
-FJ_ARGS+=(--whitelist=/tmp)
-FJ_ARGS+=(--read-write=/tmp)
+# Private writable /tmp — mounts a fresh tmpfs on /tmp.
+# Needed because --read-only=/ makes /tmp read-only and --read-write=/tmp
+# doesn't work (root-owned). --private-tmp gives a clean writable tmpfs.
+FJ_ARGS+=(--private-tmp)
 
 # Set working directory
 cd "$PROJECT_DIR"
