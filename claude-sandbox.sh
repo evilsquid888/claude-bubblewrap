@@ -104,6 +104,7 @@ BWRAP_ARGS+=(--die-with-parent)  # kill sandbox if parent dies
 # Essential virtual filesystems
 BWRAP_ARGS+=(--proc /proc)
 BWRAP_ARGS+=(--dev /dev)
+BWRAP_ARGS+=(--dev-bind /dev/shm /dev/shm)  # shared memory for Chrome/Chromium/Playwright
 BWRAP_ARGS+=(--tmpfs /run)
 
 # Read-only system mounts (non-home paths only; home-relative come after tmpfs)
@@ -174,6 +175,13 @@ BWRAP_ARGS+=(--setenv SHELL "/bin/bash")
 [[ -n "${JAVA_HOME:-}" ]]          && BWRAP_ARGS+=(--setenv JAVA_HOME "$JAVA_HOME")
 [[ -n "${ANDROID_HOME:-}" ]]       && BWRAP_ARGS+=(--setenv ANDROID_HOME "$ANDROID_HOME")
 [[ -n "${ANDROID_SDK_ROOT:-}" ]]   && BWRAP_ARGS+=(--setenv ANDROID_SDK_ROOT "$ANDROID_SDK_ROOT")
+
+# Chrome/Playwright: Chromium's internal namespace sandbox conflicts with bwrap's
+# namespaces. Disabling it *should* be safe since bwrap provides the outer sandbox,
+# but need to think through whether Chrome's seccomp layer is worth keeping.
+# Uncomment these if Chrome/Playwright crashes inside the sandbox:
+# BWRAP_ARGS+=(--setenv CHROME_DEVEL_SANDBOX "")
+# BWRAP_ARGS+=(--setenv PLAYWRIGHT_CHROMIUM_SANDBOX "0")
 
 # Pass through any ANTHROPIC env vars
 [[ -n "${ANTHROPIC_API_KEY:-}" ]]   && BWRAP_ARGS+=(--setenv ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY")
