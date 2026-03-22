@@ -37,6 +37,8 @@ RW_PATHS=(
     "$HOME/.npm-global"
     "$HOME/.npm"
     "$HOME/.local/share/claude-code"
+    "$HOME/.gradle"
+    "$HOME/.kanban-code"
 )
 
 # Paths Claude gets read-only access to (system stuff it needs to function)
@@ -59,6 +61,8 @@ RO_PATHS=(
     "$HOME/.pyenv"
     "$HOME/.config/pip"
     "$HOME/.config/nvm"
+    "${JAVA_HOME:-/nonexistent}"
+    "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/nonexistent}}"
 )
 
 # Paths explicitly denied (even if they'd be caught by omission)
@@ -137,13 +141,6 @@ for path in "${RW_PATHS[@]}"; do
     fi
 done
 
-# Re-mount the RO paths that live under $HOME
-for path in "${RO_PATHS[@]}"; do
-    if [[ -e "$path" && "$path" == "$HOME"* ]]; then
-        BWRAP_ARGS+=(--ro-bind "$path" "$path")
-    fi
-done
-
 # Also bind the project dir (may be outside $HOME)
 BWRAP_ARGS+=(--bind "$PROJECT_DIR" "$PROJECT_DIR")
 
@@ -172,6 +169,11 @@ BWRAP_ARGS+=(--setenv SHELL "/bin/bash")
 [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]   && BWRAP_ARGS+=(--setenv AWS_ACCESS_KEY_ID "$AWS_ACCESS_KEY_ID")
 [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]] && BWRAP_ARGS+=(--setenv AWS_SECRET_ACCESS_KEY "$AWS_SECRET_ACCESS_KEY")
 [[ -n "${AWS_SESSION_TOKEN:-}" ]]   && BWRAP_ARGS+=(--setenv AWS_SESSION_TOKEN "$AWS_SESSION_TOKEN")
+
+# Pass through Java/Android env vars if set
+[[ -n "${JAVA_HOME:-}" ]]          && BWRAP_ARGS+=(--setenv JAVA_HOME "$JAVA_HOME")
+[[ -n "${ANDROID_HOME:-}" ]]       && BWRAP_ARGS+=(--setenv ANDROID_HOME "$ANDROID_HOME")
+[[ -n "${ANDROID_SDK_ROOT:-}" ]]   && BWRAP_ARGS+=(--setenv ANDROID_SDK_ROOT "$ANDROID_SDK_ROOT")
 
 # Pass through any ANTHROPIC env vars
 [[ -n "${ANTHROPIC_API_KEY:-}" ]]   && BWRAP_ARGS+=(--setenv ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY")
