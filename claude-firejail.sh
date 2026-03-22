@@ -37,6 +37,7 @@ RW_PATHS=(
     "$HOME/.npm-global"
     "$HOME/.npm"
     "$HOME/.local/share/claude-code"
+    "$HOME/.local/share/claude"
     "$HOME/.gradle"
     "$HOME/.kanban-code"
 )
