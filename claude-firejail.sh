@@ -46,6 +46,7 @@ RW_PATHS=(
 RO_PATHS=(
     "$HOME/.ssh"
     "$HOME/.aws"
+    "$HOME/.config/gh"
     "$HOME/.nvm"
     "$HOME/.fnm"
     "$HOME/.local/bin"

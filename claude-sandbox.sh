@@ -53,6 +53,7 @@ RO_PATHS=(
     "/opt"
     "$HOME/.ssh"
     "$HOME/.aws"
+    "$HOME/.config/gh"
     "$HOME/.nvm"
     "$HOME/.fnm"
     "$HOME/.local/bin"
