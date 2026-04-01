@@ -145,6 +145,7 @@ Both scripts enforce the same filesystem policy:
 | `~/.ssh`, `~/.aws` | Credentials (read-only, not writable) |
 | `~/.nvm`, `~/.fnm`, `~/.cargo/bin`, `~/.rustup`, `~/.pyenv` | Language toolchains |
 | `~/.local/bin`, `~/.local/lib` | User-installed tools |
+| `~/.config/tmux`, `~/.tmux` | Tmux plugins (e.g. hooks for Claude Code integration) |
 | `$JAVA_HOME`, `$ANDROID_HOME` | JDK and Android SDK (if set) |
 
 ### Blocked (deny-listed)

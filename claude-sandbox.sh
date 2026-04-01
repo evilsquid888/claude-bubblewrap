@@ -63,6 +63,8 @@ RO_PATHS=(
     "$HOME/.pyenv"
     "$HOME/.config/pip"
     "$HOME/.config/nvm"
+    "$HOME/.config/tmux"
+    "$HOME/.tmux"
     "${JAVA_HOME:-/nonexistent}"
     "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/nonexistent}}"
 )
