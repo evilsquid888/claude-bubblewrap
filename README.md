@@ -1,6 +1,8 @@
-# claude-bubblewrap
+# AI agent bubblewrap
 
-OS-level sandbox for running [Claude Code](https://github.com/anthropics/claude-code) with dangerous permissions safely. Two sandbox backends: [bubblewrap](https://github.com/containers/bubblewrap) and [firejail](https://github.com/netblue30/firejail). Both wrap Claude Code in an external jail that holds even if Claude reasons its way around its internal sandbox.
+OS-level sandbox for running Claude Code, Pi, Qwen Code, and Grok with broad tool permissions while limiting filesystem access. Bubblewrap supports all four agents; the legacy Firejail launcher remains Claude-specific.
+
+The installed commands are `claudejail`, `pijail`, `qwenjail`, and `grokjail`. Each uses the current directory as its writable project unless the first argument is another directory.
 
 ## Why
 
@@ -33,6 +35,17 @@ Claude Code's built-in sandbox is a software guardrail. This is a hardware one. 
 └──────────────────────────────────┘
 ```
 
+## Agent support
+
+| Command | Agent state (read-write) | Default agent arguments |
+|---|---|---|
+| `claudejail` | `~/.claude`, Claude local data | `--dangerously-skip-permissions` |
+| `pijail` | `~/.pi` | none (Pi tools run directly) |
+| `qwenjail` | `~/.qwen` | `--yolo` |
+| `grokjail` | `~/.grok` | `--yolo` |
+
+NVIDIA, DRI, and nvhost devices are passed through when present, so agents may connect to local model servers or launch GPU-backed local tooling. Network access, including localhost, remains open.
+
 ## Two sandbox backends
 
 This project provides two scripts with identical security policies but different sandboxing tools:
@@ -55,7 +68,7 @@ This project provides two scripts with identical security policies but different
 ## Requirements
 
 - Linux
-- [Claude Code](https://github.com/anthropics/claude-code) (`claude`)
+- One or more supported agent CLIs: `claude`, `pi`, `qwen`, or `grok`
 - One of:
   - [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`)
   - [firejail](https://github.com/netblue30/firejail) (`firejail`)
@@ -65,8 +78,8 @@ This project provides two scripts with identical security policies but different
 sudo apt install bubblewrap     # Debian/Ubuntu
 sudo apt install firejail       # Debian/Ubuntu
 
-# Install Claude Code
-npm install -g @anthropic-ai/claude-code
+# Install command aliases for the current user
+./install.sh
 ```
 
 ## AppArmor setup (bubblewrap only)
@@ -110,10 +123,18 @@ If it returns 0 or the sysctl doesn't exist, bwrap will work without changes.
 ## Usage
 
 ```bash
-# Bubblewrap version
-./claude-sandbox.sh                                     # current directory
-./claude-sandbox.sh /path/to/project                    # specific project
-./claude-sandbox.sh /path/to/project --print "do X"     # pass args to claude
+# Installed Bubblewrap launchers
+pijail                         # Pi in the current project
+qwenjail                       # Qwen Code in the current project
+grokjail                       # Grok in the current project
+claudejail                     # Claude Code in the current project
+
+pijail /path/to/project        # explicit project directory
+qwenjail --model local-model   # arguments are passed to the agent
+
+# Repository launchers (without installation)
+AI_JAIL_AGENT=pi ./agent-sandbox.sh
+./claude-sandbox.sh            # backward-compatible Claude launcher
 
 # Firejail version
 ./claude-firejail.sh                                    # current directory
@@ -130,7 +151,7 @@ Both scripts enforce the same filesystem policy:
 | Path | Why |
 |------|-----|
 | `$PROJECT_DIR` | The project you're working on |
-| `~/.claude`, `~/.claude.json`, `~/.config/claude` | Claude Code config and session state |
+| Selected agent state (`~/.claude`, `~/.pi`, `~/.qwen`, or `~/.grok`) | Config, auth, and session state |
 | `~/.gitconfig`, `~/.config/git` | Git identity |
 | `~/.npm`, `~/.npm-global` | npm cache and global packages |
 | `~/.gradle` | Gradle build cache |
@@ -178,6 +199,8 @@ Both scripts enforce the same filesystem policy:
 
 Bubblewrap version also has commented-out `CHROME_DEVEL_SANDBOX` and `PLAYWRIGHT_CHROMIUM_SANDBOX` env vars — uncomment if Chrome crashes inside the sandbox.
 
+Bubblewrap inherits the rest of the host environment, so local model endpoint variables and provider-specific API keys continue to work.
+
 ## Verifying the sandbox
 
 Run the test script inside the sandbox to confirm isolation is working:
@@ -190,6 +213,12 @@ bwrap [your args] /bin/bash sandbox-test.sh
 ```
 
 The test checks filesystem write restrictions, sensitive path blocking, network access, and tool availability.
+
+Launcher selection and arguments can be tested without loading any model or consuming VRAM:
+
+```bash
+./test-launchers.sh
+```
 
 ## Customizing
 

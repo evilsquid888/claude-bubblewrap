@@ -2,21 +2,26 @@
 
 ## Project overview
 
-OS-level bubblewrap sandbox for running Claude Code with dangerous permissions. Two bash scripts, no build process.
+OS-level sandbox for running Claude Code, Pi, Qwen Code, and Grok with broad tool permissions. Bash scripts only; no build process.
 
 ## Files
 
-- `claude-sandbox.sh` — Main script. Builds bwrap arguments and launches Claude Code inside the jail.
+- `agent-sandbox.sh` — Main Bubblewrap script. Selects an agent from its invocation name or `AI_JAIL_AGENT`.
+- `claude-sandbox.sh` — Backward-compatible Claude-only Bubblewrap launcher.
+- `install.sh` — Installs `claudejail`, `pijail`, `qwenjail`, and `grokjail` for the current user.
+- `test-launchers.sh` — Mock launch tests that do not start models.
 - `sandbox-test.sh` — Verification script. Run inside the sandbox to confirm isolation works.
 - `TODO.md` — Remaining hardening tasks.
 
 ## Architecture
 
-The script constructs a `bwrap` command with three mount tiers:
+The main script constructs a `bwrap` command with three mount tiers:
 
 1. **RW mounts** — project dir + config paths Claude needs to write to
 2. **RO mounts** — system paths and toolchains (read-only)
 3. **Deny mounts** — sensitive paths overlaid with tmpfs (invisible)
+
+Agent-specific state is selected in the top-level `case` statement. NVIDIA, DRI, and nvhost device nodes are passed through after the private `/dev` is created.
 
 Mount ordering matters: `--tmpfs $HOME` must come before all home-relative bind mounts, otherwise the tmpfs wipes them. System (non-home) mounts go before the tmpfs. Home-relative RO mounts go after, then home-relative RW mounts layer on top.
 
@@ -33,6 +38,8 @@ Mount ordering matters: `--tmpfs $HOME` must come before all home-relative bind 
 There is no automated test runner. To verify:
 
 ```bash
+./test-launchers.sh
+
 # Replace claude with bash to get a shell inside the sandbox
 # Then run sandbox-test.sh from within
 ```
