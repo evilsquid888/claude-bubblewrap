@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# claude-firejail.sh — External firejail sandbox for Claude Code
+# claude-firejail.sh — External firejail sandbox for AI coding agents
+# (Claude Code, Pi, Qwen Code, Grok, OpenCode)
 #
-# Belt-and-suspenders approach: wraps Claude Code in an OS-level
-# sandbox OUTSIDE of Claude's own built-in sandbox. Even if Claude
-# reasons its way around its internal sandbox, this outer jail holds.
+# Belt-and-suspenders approach: wraps the agent in an OS-level sandbox
+# OUTSIDE of its own built-in permission system. Even if the agent
+# reasons its way around its internal guardrails, this outer jail holds.
+#
+# The agent is selected by the name the script is invoked as
+# (claudejail, pijail, qwenjail, grokjail, opencodejail) or by AI_JAIL_AGENT.
 #
 # Policy:
 #   - Network: fully open (no restrictions)
@@ -13,7 +17,7 @@
 # Usage:
 #   ./claude-firejail.sh                    # run in current project dir
 #   ./claude-firejail.sh /path/to/project   # specify project dir
-#   ./claude-firejail.sh /path/to/project --print "do something"  # pass args to claude
+#   ./claude-firejail.sh /path/to/project --print "do something"  # pass args to the agent
 
 set -euo pipefail
 
@@ -26,23 +30,94 @@ else
     PROJECT_DIR="$(pwd)"
 fi
 
-# Paths Claude gets read-write access to
+# ── Agent selection ────────────────────────────────────────────────
+# Invoke through one of the supported names (claudejail, pijail, qwenjail,
+# grokjail, opencodejail), or set AI_JAIL_AGENT to claude, pi, qwen, grok,
+# or opencode.
+INVOKED_AS="${0##*/}"
+AGENT="${AI_JAIL_AGENT:-}"
+
+if [[ -z "$AGENT" ]]; then
+    case "$INVOKED_AS" in
+        claudejail|claude-firejail.sh) AGENT="claude" ;;
+        pijail)                        AGENT="pi" ;;
+        qwenjail)                      AGENT="qwen" ;;
+        grokjail)                      AGENT="grok" ;;
+        opencodejail)                  AGENT="opencode" ;;
+        *)
+            echo "ERROR: invoke as claudejail, pijail, qwenjail, grokjail, or opencodejail." >&2
+            echo "  Alternatively: AI_JAIL_AGENT=pi $INVOKED_AS" >&2
+            exit 2
+            ;;
+    esac
+fi
+
+AGENT_RO_PATHS=()
+case "$AGENT" in
+    claude)
+        AGENT_LABEL="Claude Code"
+        AGENT_COMMAND="claude"
+        AGENT_RW_PATHS=(
+            "$HOME/.claude"
+            "$HOME/.claude.json"
+            "$HOME/.config/claude"
+            "$HOME/.local/share/claude-code"
+            "$HOME/.local/share/claude"
+        )
+        DEFAULT_AGENT_ARGS=(--dangerously-skip-permissions)
+        ;;
+    pi)
+        AGENT_LABEL="Pi"
+        AGENT_COMMAND="pi"
+        AGENT_RW_PATHS=("$HOME/.pi")
+        # Pi's built-in coding tools do not use a separate approval flag.
+        DEFAULT_AGENT_ARGS=()
+        ;;
+    qwen)
+        AGENT_LABEL="Qwen Code"
+        AGENT_COMMAND="qwen"
+        AGENT_RW_PATHS=("$HOME/.qwen")
+        DEFAULT_AGENT_ARGS=(--yolo)
+        ;;
+    grok)
+        AGENT_LABEL="Grok"
+        AGENT_COMMAND="grok"
+        AGENT_RW_PATHS=("$HOME/.grok")
+        DEFAULT_AGENT_ARGS=(--yolo)
+        ;;
+    opencode)
+        AGENT_LABEL="OpenCode"
+        AGENT_COMMAND="opencode"
+        AGENT_RW_PATHS=(
+            "$HOME/.config/opencode"
+            "$HOME/.local/share/opencode"
+            "$HOME/.local/state/opencode"
+            "$HOME/.cache/opencode"
+        )
+        AGENT_RO_PATHS=("$HOME/.opencode")   # install location of the binary
+        # --standalone: run the server inside the jail. Without it, opencode talks
+        #   to a background service on the HOST, which would run tools outside the jail.
+        # --auto: auto-approve permissions (opencode's --dangerously-skip-permissions)
+        DEFAULT_AGENT_ARGS=(--standalone --auto)
+        ;;
+    *)
+        echo "ERROR: unsupported AI_JAIL_AGENT: $AGENT" >&2
+        exit 2
+        ;;
+esac
+
+# Paths the agent gets read-write access to
 RW_PATHS=(
     "$PROJECT_DIR"
-    "$HOME/.claude"
-    "$HOME/.claude.json"
-    "$HOME/.config/claude"
+    ${AGENT_RW_PATHS[@]+"${AGENT_RW_PATHS[@]}"}
     "$HOME/.gitconfig"
     "$HOME/.config/git"
     "$HOME/.npm-global"
     "$HOME/.npm"
-    "$HOME/.local/share/claude-code"
-    "$HOME/.local/share/claude"
     "$HOME/.gradle"
-    "$HOME/.kanban-code"
 )
 
-# Paths Claude gets read-only access to
+# Paths the agent gets read-only access to
 RO_PATHS=(
     "$HOME/.ssh"
     "$HOME/.aws"
@@ -58,6 +133,7 @@ RO_PATHS=(
     "$HOME/.config/nvm"
     "$HOME/.config/tmux"
     "$HOME/.tmux"
+    ${AGENT_RO_PATHS[@]+"${AGENT_RO_PATHS[@]}"}
 )
 
 # Paths explicitly denied
@@ -76,14 +152,13 @@ if ! command -v firejail &>/dev/null; then
     exit 1
 fi
 
-if ! command -v claude &>/dev/null; then
-    echo "ERROR: claude not found in PATH."
-    echo "  Install: npm install -g @anthropic-ai/claude-code"
+if ! command -v "$AGENT_COMMAND" &>/dev/null; then
+    echo "ERROR: $AGENT_COMMAND not found in PATH." >&2
     exit 1
 fi
 
-# Resolve claude binary — follow symlinks so firejail can find the real executable
-CLAUDE_BIN="$(readlink -f "$(command -v claude)")"
+# Resolve agent binary — follow symlinks so firejail can find the real executable
+AGENT_BIN="$(readlink -f "$(command -v "$AGENT_COMMAND")")"
 
 # ── Build firejail arguments ─────────────────────────────────────
 FJ_ARGS=()
@@ -168,7 +243,9 @@ cd "$PROJECT_DIR"
 
 # Pass through environment variables
 FJ_ARGS+=(--env=TERM="${TERM:-xterm-256color}")
-FJ_ARGS+=(--env=PATH="$HOME/.local/bin:$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node/" 2>/dev/null | tail -1)/bin:/usr/local/bin:/usr/bin:/bin:$HOME/.npm-global/bin:$HOME/.cargo/bin")
+# Latest nvm node version, if any (guarded so a missing ~/.nvm doesn't abort under pipefail)
+NVM_NODE_VERSION="$(ls "$HOME/.nvm/versions/node/" 2>/dev/null | tail -1 || true)"
+FJ_ARGS+=(--env=PATH="$HOME/.local/bin:$HOME/.nvm/versions/node/${NVM_NODE_VERSION:-none}/bin:/usr/local/bin:/usr/bin:/bin:$HOME/.npm-global/bin:$HOME/.cargo/bin")
 FJ_ARGS+=(--env=LANG="${LANG:-en_US.UTF-8}")
 FJ_ARGS+=(--env=SHELL="/bin/bash")
 
@@ -185,16 +262,19 @@ FJ_ARGS+=(--env=SHELL="/bin/bash")
 [[ -n "${ANDROID_HOME:-}" ]]         && FJ_ARGS+=(--env=ANDROID_HOME="$ANDROID_HOME")
 [[ -n "${ANDROID_SDK_ROOT:-}" ]]     && FJ_ARGS+=(--env=ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT")
 
-# Anthropic env vars
-[[ -n "${ANTHROPIC_API_KEY:-}" ]]    && FJ_ARGS+=(--env=ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY")
+# Model provider API keys (passed through only if set)
+for var in ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY OPENROUTER_API_KEY; do
+    [[ -n "${!var:-}" ]] && FJ_ARGS+=(--env="$var=${!var}")
+done
 
 # ── Summary ────────────────────────────────────────────────────────
 echo "╔══════════════════════════════════════════════════════╗"
-echo "║  Claude Code — External Firejail Sandbox            ║"
+printf "║  %-52s║\n" "$AGENT_LABEL — External Firejail Sandbox"
 echo "╠══════════════════════════════════════════════════════╣"
+echo "║  Agent:    $AGENT_COMMAND ${DEFAULT_AGENT_ARGS[*]:-}"
 echo "║  Project:  $(basename "$PROJECT_DIR")"
 echo "║  Network:  OPEN (no restrictions)"
-echo "║  FS Write: project + ~/.claude"
+echo "║  FS Write: project + agent config dirs"
 echo "║  /tmp:     private (not shared with host)"
 echo "║  FS Read:  system paths (read-only)"
 echo "║  Blocked:  gnupg private keys, password store, kube"
@@ -204,4 +284,4 @@ echo "╚═══════════════════════�
 echo ""
 
 # ── Launch ─────────────────────────────────────────────────────────
-exec firejail "${FJ_ARGS[@]}" "$CLAUDE_BIN" --dangerously-skip-permissions "$@"
+exec firejail "${FJ_ARGS[@]}" "$AGENT_BIN" ${DEFAULT_AGENT_ARGS[@]+"${DEFAULT_AGENT_ARGS[@]}"} "$@"

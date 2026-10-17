@@ -2,7 +2,8 @@
 # agent-sandbox.sh — External bubblewrap jail for AI coding agents
 #
 # Invoke through one of the supported names (claudejail, pijail, qwenjail,
-# grokjail), or set AI_JAIL_AGENT to claude, pi, qwen, or grok.
+# grokjail, opencodejail), or set AI_JAIL_AGENT to claude, pi, qwen, grok,
+# or opencode.
 
 set -euo pipefail
 
@@ -15,14 +16,16 @@ if [[ -z "$AGENT" ]]; then
         pijail)                       AGENT="pi" ;;
         qwenjail)                     AGENT="qwen" ;;
         grokjail)                     AGENT="grok" ;;
+        opencodejail)                 AGENT="opencode" ;;
         *)
-            echo "ERROR: invoke as claudejail, pijail, qwenjail, or grokjail." >&2
+            echo "ERROR: invoke as claudejail, pijail, qwenjail, grokjail, or opencodejail." >&2
             echo "  Alternatively: AI_JAIL_AGENT=pi $INVOKED_AS" >&2
             exit 2
             ;;
     esac
 fi
 
+AGENT_RO_PATHS=()
 case "$AGENT" in
     claude)
         AGENT_LABEL="Claude Code"
@@ -54,6 +57,21 @@ case "$AGENT" in
         AGENT_COMMAND="grok"
         AGENT_RW_PATHS=("$HOME/.grok")
         DEFAULT_AGENT_ARGS=(--yolo)
+        ;;
+    opencode)
+        AGENT_LABEL="OpenCode"
+        AGENT_COMMAND="opencode"
+        AGENT_RW_PATHS=(
+            "$HOME/.config/opencode"
+            "$HOME/.local/share/opencode"
+            "$HOME/.local/state/opencode"
+            "$HOME/.cache/opencode"
+        )
+        AGENT_RO_PATHS=("$HOME/.opencode")   # install location of the binary
+        # --standalone: run the server inside the jail. Without it, opencode talks
+        #   to a background service on the HOST, which would run tools outside the jail.
+        # --auto: auto-approve permissions (opencode's --dangerously-skip-permissions)
+        DEFAULT_AGENT_ARGS=(--standalone --auto)
         ;;
     *)
         echo "ERROR: unsupported AI_JAIL_AGENT: $AGENT" >&2
@@ -102,6 +120,7 @@ RO_PATHS=(
     "$HOME/.config/nvm"
     "$HOME/.config/tmux"
     "$HOME/.tmux"
+    ${AGENT_RO_PATHS[@]+"${AGENT_RO_PATHS[@]}"}
     "${JAVA_HOME:-/nonexistent}"
     "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/nonexistent}}"
 )
@@ -226,4 +245,4 @@ echo "║  Blocked:  other home files and sensitive stores"
 echo "╚══════════════════════════════════════════════════════╝"
 echo
 
-exec bwrap "${BWRAP_ARGS[@]}" "$AGENT_BIN" "${DEFAULT_AGENT_ARGS[@]}" "$@"
+exec bwrap "${BWRAP_ARGS[@]}" "$AGENT_BIN" ${DEFAULT_AGENT_ARGS[@]+"${DEFAULT_AGENT_ARGS[@]}"} "$@"

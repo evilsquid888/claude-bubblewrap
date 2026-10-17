@@ -2,14 +2,15 @@
 
 ## Project overview
 
-OS-level sandbox for running Claude Code, Pi, Qwen Code, and Grok with broad tool permissions. Bash scripts only; no build process.
+OS-level sandbox for running Claude Code, Pi, Qwen Code, Grok, and OpenCode with broad tool permissions. Bash scripts only; no build process.
 
 ## Files
 
 - `agent-sandbox.sh` — Main Bubblewrap script. Selects an agent from its invocation name or `AI_JAIL_AGENT`.
+- `claude-firejail.sh` — Firejail equivalent of `agent-sandbox.sh`. Same agent selection, same commands.
 - `claude-sandbox.sh` — Backward-compatible Claude-only Bubblewrap launcher.
-- `install.sh` — Installs `claudejail`, `pijail`, `qwenjail`, and `grokjail` for the current user.
-- `test-launchers.sh` — Mock launch tests that do not start models.
+- `install.sh` — Installs `claudejail`, `pijail`, `qwenjail`, `grokjail`, and `opencodejail` for the current user (`bwrap` default, or `firejail`).
+- `test-launchers.sh` — Mock launch tests for both backends that do not start models.
 - `sandbox-test.sh` — Verification script. Run inside the sandbox to confirm isolation works.
 - `TODO.md` — Remaining hardening tasks.
 
@@ -21,7 +22,7 @@ The main script constructs a `bwrap` command with three mount tiers:
 2. **RO mounts** — system paths and toolchains (read-only)
 3. **Deny mounts** — sensitive paths overlaid with tmpfs (invisible)
 
-Agent-specific state is selected in the top-level `case` statement. NVIDIA, DRI, and nvhost device nodes are passed through after the private `/dev` is created.
+Agent-specific state is selected in the top-level `case` statement (`AGENT_RW_PATHS`, optional `AGENT_RO_PATHS`, `DEFAULT_AGENT_ARGS`). To add an agent, add a `case` arm in both `agent-sandbox.sh` and `claude-firejail.sh`, then add the command to `install.sh` and `test-launchers.sh`. NVIDIA, DRI, and nvhost device nodes are passed through after the private `/dev` is created.
 
 Mount ordering matters: `--tmpfs $HOME` must come before all home-relative bind mounts, otherwise the tmpfs wipes them. System (non-home) mounts go before the tmpfs. Home-relative RO mounts go after, then home-relative RW mounts layer on top.
 

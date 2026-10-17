@@ -1,8 +1,8 @@
 # AI agent bubblewrap
 
-OS-level sandbox for running Claude Code, Pi, Qwen Code, and Grok with broad tool permissions while limiting filesystem access. Bubblewrap supports all four agents; the legacy Firejail launcher remains Claude-specific.
+OS-level sandbox for running Claude Code, Pi, Qwen Code, Grok, and OpenCode with broad tool permissions while limiting filesystem access. Both the Bubblewrap and Firejail launchers support all five agents.
 
-The installed commands are `claudejail`, `pijail`, `qwenjail`, and `grokjail`. Each uses the current directory as its writable project unless the first argument is another directory.
+The installed commands are `claudejail`, `pijail`, `qwenjail`, `grokjail`, and `opencodejail`. Each uses the current directory as its writable project unless the first argument is another directory.
 
 ## Why
 
@@ -43,6 +43,9 @@ Claude Code's built-in sandbox is a software guardrail. This is a hardware one. 
 | `pijail` | `~/.pi` | none (Pi tools run directly) |
 | `qwenjail` | `~/.qwen` | `--yolo` |
 | `grokjail` | `~/.grok` | `--yolo` |
+| `opencodejail` | `~/.config/opencode`, `~/.local/share/opencode`, `~/.local/state/opencode`, `~/.cache/opencode` | `--standalone --auto` |
+
+OpenCode gets `--standalone` because by default it talks to a background service on the host. That service would execute tools **outside** the jail, defeating the sandbox. `--auto` is OpenCode's equivalent of skipping permission prompts.
 
 NVIDIA, DRI, and nvhost devices are passed through when present, so agents may connect to local model servers or launch GPU-backed local tooling. Network access, including localhost, remains open.
 
@@ -68,7 +71,7 @@ This project provides two scripts with identical security policies but different
 ## Requirements
 
 - Linux
-- One or more supported agent CLIs: `claude`, `pi`, `qwen`, or `grok`
+- One or more supported agent CLIs: `claude`, `pi`, `qwen`, `grok`, or `opencode`
 - One of:
   - [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`)
   - [firejail](https://github.com/netblue30/firejail) (`firejail`)
@@ -79,7 +82,8 @@ sudo apt install bubblewrap     # Debian/Ubuntu
 sudo apt install firejail       # Debian/Ubuntu
 
 # Install command aliases for the current user
-./install.sh
+./install.sh              # bubblewrap backend
+./install.sh firejail     # firejail backend (use where bwrap is blocked by AppArmor)
 ```
 
 ## AppArmor setup (bubblewrap only)
@@ -123,10 +127,11 @@ If it returns 0 or the sysctl doesn't exist, bwrap will work without changes.
 ## Usage
 
 ```bash
-# Installed Bubblewrap launchers
+# Installed launchers (same commands for either backend)
 pijail                         # Pi in the current project
 qwenjail                       # Qwen Code in the current project
 grokjail                       # Grok in the current project
+opencodejail                   # OpenCode in the current project
 claudejail                     # Claude Code in the current project
 
 pijail /path/to/project        # explicit project directory
@@ -136,10 +141,11 @@ qwenjail --model local-model   # arguments are passed to the agent
 AI_JAIL_AGENT=pi ./agent-sandbox.sh
 ./claude-sandbox.sh            # backward-compatible Claude launcher
 
-# Firejail version
+# Firejail version (claude by default, any agent via AI_JAIL_AGENT)
 ./claude-firejail.sh                                    # current directory
 ./claude-firejail.sh /path/to/project                   # specific project
 ./claude-firejail.sh /path/to/project --print "do X"    # pass args to claude
+AI_JAIL_AGENT=opencode ./claude-firejail.sh             # OpenCode under firejail
 ```
 
 ## Security policy
@@ -151,7 +157,7 @@ Both scripts enforce the same filesystem policy:
 | Path | Why |
 |------|-----|
 | `$PROJECT_DIR` | The project you're working on |
-| Selected agent state (`~/.claude`, `~/.pi`, `~/.qwen`, or `~/.grok`) | Config, auth, and session state |
+| Selected agent state (`~/.claude`, `~/.pi`, `~/.qwen`, `~/.grok`, or the OpenCode dirs) | Config, auth, and session state |
 | `~/.gitconfig`, `~/.config/git` | Git identity |
 | `~/.npm`, `~/.npm-global` | npm cache and global packages |
 | `~/.gradle` | Gradle build cache |
