@@ -1,8 +1,8 @@
 # AI agent bubblewrap
 
-OS-level sandbox for running Claude Code, Pi, Qwen Code, Grok, and OpenCode with broad tool permissions while limiting filesystem access. Both the Bubblewrap and Firejail launchers support all five agents.
+OS-level sandbox for running Claude Code, Pi, Qwen Code, Grok, OpenCode, and DSH TUI with broad tool permissions while limiting filesystem access. Both the Bubblewrap and Firejail launchers support all six agents.
 
-The installed commands are `claudejail`, `pijail`, `qwenjail`, `grokjail`, and `opencodejail`. Each uses the current directory as its writable project unless the first argument is another directory.
+The installed commands are `claudejail`, `pijail`, `qwenjail`, `grokjail`, `opencodejail`, and `dshjail`. Each uses the current directory as its writable project unless the first argument is another directory.
 
 ## Why
 
@@ -44,6 +44,9 @@ Claude Code's built-in sandbox is a software guardrail. This is a hardware one. 
 | `qwenjail` | `~/.qwen` | `--yolo` |
 | `grokjail` | `~/.grok` | `--yolo` |
 | `opencodejail` | `~/.config/opencode`, `~/.local/share/opencode`, `~/.local/state/opencode`, `~/.cache/opencode` | `--standalone --auto` |
+| `dshjail` | `~/.dsh`, `$DSH_HOME` (if set), `~/.dsh-tui` | none (runs `dsh-tui`) |
+
+DSH state directories are created before launch so first-run profile setup and UI settings persist. `AI_JAIL_AGENT=dsh` (or `dsh-tui`) also selects this launcher. DSH's configured permission settings apply; the launcher adds no approval flags.
 
 OpenCode gets `--standalone` because by default it talks to a background service on the host. That service would execute tools **outside** the jail, defeating the sandbox. `--auto` is OpenCode's equivalent of skipping permission prompts.
 
@@ -71,7 +74,7 @@ This project provides two scripts with identical security policies but different
 ## Requirements
 
 - Linux
-- One or more supported agent CLIs: `claude`, `pi`, `qwen`, `grok`, or `opencode`
+- One or more supported agent CLIs: `claude`, `pi`, `qwen`, `grok`, `opencode`, or `dsh-tui` (with `dsh` and `pnpm` available for profile setup)
 - One of:
   - [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`)
   - [firejail](https://github.com/netblue30/firejail) (`firejail`)
@@ -132,13 +135,16 @@ pijail                         # Pi in the current project
 qwenjail                       # Qwen Code in the current project
 grokjail                       # Grok in the current project
 opencodejail                   # OpenCode in the current project
+dshjail                        # DSH TUI in the current project
 claudejail                     # Claude Code in the current project
 
 pijail /path/to/project        # explicit project directory
 qwenjail --model local-model   # arguments are passed to the agent
+dshjail /path/to/project --resume  # resume DSH TUI in an explicit project
 
 # Repository launchers (without installation)
 AI_JAIL_AGENT=pi ./agent-sandbox.sh
+AI_JAIL_AGENT=dsh ./agent-sandbox.sh
 ./claude-sandbox.sh            # backward-compatible Claude launcher
 
 # Firejail version (claude by default, any agent via AI_JAIL_AGENT)
@@ -157,7 +163,7 @@ Both scripts enforce the same filesystem policy:
 | Path | Why |
 |------|-----|
 | `$PROJECT_DIR` | The project you're working on |
-| Selected agent state (`~/.claude`, `~/.pi`, `~/.qwen`, `~/.grok`, or the OpenCode dirs) | Config, auth, and session state |
+| Selected agent state (`~/.claude`, `~/.pi`, `~/.qwen`, `~/.grok`, the OpenCode dirs, or `~/.dsh`, `$DSH_HOME`, and `~/.dsh-tui`) | Config, auth, and session state |
 | `~/.gitconfig`, `~/.config/git` | Git identity |
 | `~/.npm`, `~/.npm-global` | npm cache and global packages |
 | `~/.gradle` | Gradle build cache |

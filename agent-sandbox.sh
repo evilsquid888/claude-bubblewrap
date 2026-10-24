@@ -2,8 +2,8 @@
 # agent-sandbox.sh — External bubblewrap jail for AI coding agents
 #
 # Invoke through one of the supported names (claudejail, pijail, qwenjail,
-# grokjail, opencodejail), or set AI_JAIL_AGENT to claude, pi, qwen, grok,
-# or opencode.
+# grokjail, opencodejail, dshjail), or set AI_JAIL_AGENT to claude, pi, qwen,
+# grok, opencode, or dsh.
 
 set -euo pipefail
 
@@ -17,8 +17,9 @@ if [[ -z "$AGENT" ]]; then
         qwenjail)                     AGENT="qwen" ;;
         grokjail)                     AGENT="grok" ;;
         opencodejail)                 AGENT="opencode" ;;
+        dshjail)                      AGENT="dsh" ;;
         *)
-            echo "ERROR: invoke as claudejail, pijail, qwenjail, grokjail, or opencodejail." >&2
+            echo "ERROR: invoke as claudejail, pijail, qwenjail, grokjail, opencodejail, or dshjail." >&2
             echo "  Alternatively: AI_JAIL_AGENT=pi $INVOKED_AS" >&2
             exit 2
             ;;
@@ -72,6 +73,12 @@ case "$AGENT" in
         #   to a background service on the HOST, which would run tools outside the jail.
         # --auto: auto-approve permissions (opencode's --dangerously-skip-permissions)
         DEFAULT_AGENT_ARGS=(--standalone --auto)
+        ;;
+    dsh|dsh-tui)
+        AGENT_LABEL="DSH TUI"
+        AGENT_COMMAND="dsh-tui"
+        AGENT_RW_PATHS=("$HOME/.dsh" "${DSH_HOME:-$HOME/.dsh}" "$HOME/.dsh-tui")
+        DEFAULT_AGENT_ARGS=()
         ;;
     *)
         echo "ERROR: unsupported AI_JAIL_AGENT: $AGENT" >&2
@@ -146,6 +153,11 @@ fi
 
 # Resolve the host binary before replacing HOME with a private tmpfs.
 AGENT_BIN="$(readlink -f "$(command -v "$AGENT_COMMAND")")"
+
+# Persist first-run profile setup and UI state instead of losing them in tmpfs.
+if [[ "$AGENT_COMMAND" == dsh-tui ]]; then
+    mkdir -p -- "${AGENT_RW_PATHS[@]}"
+fi
 
 BWRAP_ARGS=(
     --unshare-pid
@@ -245,4 +257,4 @@ echo "║  Blocked:  other home files and sensitive stores"
 echo "╚══════════════════════════════════════════════════════╝"
 echo
 
-exec bwrap "${BWRAP_ARGS[@]}" "$AGENT_BIN" ${DEFAULT_AGENT_ARGS[@]+"${DEFAULT_AGENT_ARGS[@]}"} "$@"
+exec bwrap "${BWRAP_ARGS[@]}" "$AGENT_BIN" "$@" ${DEFAULT_AGENT_ARGS[@]+"${DEFAULT_AGENT_ARGS[@]}"}

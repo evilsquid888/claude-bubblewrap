@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # claude-firejail.sh — External firejail sandbox for AI coding agents
-# (Claude Code, Pi, Qwen Code, Grok, OpenCode)
+# (Claude Code, Pi, Qwen Code, Grok, OpenCode, DSH TUI)
 #
 # Belt-and-suspenders approach: wraps the agent in an OS-level sandbox
 # OUTSIDE of its own built-in permission system. Even if the agent
 # reasons its way around its internal guardrails, this outer jail holds.
 #
 # The agent is selected by the name the script is invoked as
-# (claudejail, pijail, qwenjail, grokjail, opencodejail) or by AI_JAIL_AGENT.
+# (claudejail, pijail, qwenjail, grokjail, opencodejail, dshjail) or by AI_JAIL_AGENT.
 #
 # Policy:
 #   - Network: fully open (no restrictions)
@@ -32,8 +32,8 @@ fi
 
 # ── Agent selection ────────────────────────────────────────────────
 # Invoke through one of the supported names (claudejail, pijail, qwenjail,
-# grokjail, opencodejail), or set AI_JAIL_AGENT to claude, pi, qwen, grok,
-# or opencode.
+# grokjail, opencodejail, dshjail), or set AI_JAIL_AGENT to claude, pi, qwen,
+# grok, opencode, or dsh.
 INVOKED_AS="${0##*/}"
 AGENT="${AI_JAIL_AGENT:-}"
 
@@ -44,8 +44,9 @@ if [[ -z "$AGENT" ]]; then
         qwenjail)                      AGENT="qwen" ;;
         grokjail)                      AGENT="grok" ;;
         opencodejail)                  AGENT="opencode" ;;
+        dshjail)                       AGENT="dsh" ;;
         *)
-            echo "ERROR: invoke as claudejail, pijail, qwenjail, grokjail, or opencodejail." >&2
+            echo "ERROR: invoke as claudejail, pijail, qwenjail, grokjail, opencodejail, or dshjail." >&2
             echo "  Alternatively: AI_JAIL_AGENT=pi $INVOKED_AS" >&2
             exit 2
             ;;
@@ -99,6 +100,12 @@ case "$AGENT" in
         #   to a background service on the HOST, which would run tools outside the jail.
         # --auto: auto-approve permissions (opencode's --dangerously-skip-permissions)
         DEFAULT_AGENT_ARGS=(--standalone --auto)
+        ;;
+    dsh|dsh-tui)
+        AGENT_LABEL="DSH TUI"
+        AGENT_COMMAND="dsh-tui"
+        AGENT_RW_PATHS=("$HOME/.dsh" "${DSH_HOME:-$HOME/.dsh}" "$HOME/.dsh-tui")
+        DEFAULT_AGENT_ARGS=()
         ;;
     *)
         echo "ERROR: unsupported AI_JAIL_AGENT: $AGENT" >&2
@@ -159,6 +166,11 @@ fi
 
 # Resolve agent binary — follow symlinks so firejail can find the real executable
 AGENT_BIN="$(readlink -f "$(command -v "$AGENT_COMMAND")")"
+
+# Persist first-run profile setup and UI state instead of hiding new paths.
+if [[ "$AGENT_COMMAND" == dsh-tui ]]; then
+    mkdir -p -- "${AGENT_RW_PATHS[@]}"
+fi
 
 # ── Build firejail arguments ─────────────────────────────────────
 FJ_ARGS=()
@@ -243,9 +255,8 @@ cd "$PROJECT_DIR"
 
 # Pass through environment variables
 FJ_ARGS+=(--env=TERM="${TERM:-xterm-256color}")
-# Latest nvm node version, if any (guarded so a missing ~/.nvm doesn't abort under pipefail)
-NVM_NODE_VERSION="$(ls "$HOME/.nvm/versions/node/" 2>/dev/null | tail -1 || true)"
-FJ_ARGS+=(--env=PATH="$HOME/.local/bin:$HOME/.nvm/versions/node/${NVM_NODE_VERSION:-none}/bin:/usr/local/bin:/usr/bin:/bin:$HOME/.npm-global/bin:$HOME/.cargo/bin")
+# Keep the active toolchain and companion CLIs (e.g. dsh and pnpm) available.
+FJ_ARGS+=(--env=PATH="$PATH")
 FJ_ARGS+=(--env=LANG="${LANG:-en_US.UTF-8}")
 FJ_ARGS+=(--env=SHELL="/bin/bash")
 
@@ -284,4 +295,4 @@ echo "╚═══════════════════════�
 echo ""
 
 # ── Launch ─────────────────────────────────────────────────────────
-exec firejail "${FJ_ARGS[@]}" "$AGENT_BIN" ${DEFAULT_AGENT_ARGS[@]+"${DEFAULT_AGENT_ARGS[@]}"} "$@"
+exec firejail "${FJ_ARGS[@]}" "$AGENT_BIN" "$@" ${DEFAULT_AGENT_ARGS[@]+"${DEFAULT_AGENT_ARGS[@]}"}

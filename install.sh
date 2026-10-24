@@ -6,7 +6,7 @@
 #   ./install.sh firejail   # firejail backend (claude-firejail.sh)
 #
 # Both backends support the same commands: claudejail, pijail, qwenjail,
-# grokjail, opencodejail. Use firejail where bwrap is blocked by AppArmor.
+# grokjail, opencodejail, dshjail. Use firejail where bwrap is blocked by AppArmor.
 set -euo pipefail
 
 BACKEND="${1:-bwrap}"
@@ -23,11 +23,11 @@ BIN_DIR="${AI_JAIL_BIN_DIR:-$HOME/.local/bin}"
 mkdir -p "$INSTALL_DIR" "$BIN_DIR"
 install -m 0755 "$SCRIPT_DIR/$SRC" "$INSTALL_DIR/$TARGET"
 
-for command in claudejail pijail qwenjail grokjail opencodejail; do
+for command in claudejail pijail qwenjail grokjail opencodejail dshjail; do
     ln -sfn "$INSTALL_DIR/$TARGET" "$BIN_DIR/$command"
 done
 
-echo "Installed ($BACKEND): $BIN_DIR/{claudejail,pijail,qwenjail,grokjail,opencodejail}"
+echo "Installed ($BACKEND): $BIN_DIR/{claudejail,pijail,qwenjail,grokjail,opencodejail,dshjail}"
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *) echo "Add $BIN_DIR to PATH before using the commands." ;;

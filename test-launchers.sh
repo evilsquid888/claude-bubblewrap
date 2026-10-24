@@ -14,7 +14,7 @@ mkdir -p "$TEST_HOME/.pi" "$TEST_HOME/.qwen" "$TEST_HOME/.grok" \
     "$TEST_HOME/.claude" "$TEST_HOME/.config/opencode" "$TEST_HOME/.opencode" \
     "$TEST_HOME/.local/bin" "$TEST_PROJECT" "$TEST_BIN"
 
-for command in claude pi qwen grok opencode; do
+for command in claude pi qwen grok opencode dsh-tui; do
     printf '#!/usr/bin/env bash\nexit 99\n' >"$TEST_BIN/$command"
     chmod +x "$TEST_BIN/$command"
 done
@@ -28,11 +28,11 @@ EOF
     chmod +x "$TEST_BIN/$tool"
 done
 
-# One symlink set per backend, mirroring what install.sh creates.
-mkdir -p "$TEST_BIN/bwrap-launchers" "$TEST_BIN/firejail-launchers"
-for command in claudejail pijail qwenjail grokjail opencodejail; do
-    ln -s "$REPO_DIR/agent-sandbox.sh"   "$TEST_BIN/bwrap-launchers/$command"
-    ln -s "$REPO_DIR/claude-firejail.sh" "$TEST_BIN/firejail-launchers/$command"
+# Exercise the actual installer for each backend in temporary directories.
+for backend in bwrap firejail; do
+    AI_JAIL_INSTALL_DIR="$TEST_ROOT/$backend-install" \
+        AI_JAIL_BIN_DIR="$TEST_BIN/$backend-launchers" \
+        bash "$REPO_DIR/install.sh" "$backend" >/dev/null
 done
 
 run_case() {
@@ -47,13 +47,39 @@ run_case() {
 
     case "$backend" in
         bwrap)    project_line="$TEST_PROJECT" ;;
-        firejail) project_line="--whitelist=$TEST_PROJECT" ;;
+        firejail)
+            project_line="--whitelist=$TEST_PROJECT"
+            grep -Fxq -- "--env=PATH=$TEST_BIN:/usr/bin:/bin" <<<"$output"
+            ;;
     esac
     grep -Fxq -- "$project_line" <<<"$output"
     grep -Fxq -- "$TEST_BIN/$agent_binary" <<<"$output"
     grep -Fxq -- "--test-argument" <<<"$output"
+    if [[ "$agent_binary" == dsh-tui ]]; then
+        local state_path
+        for state_path in "$TEST_HOME/.dsh" "${DSH_HOME:-$TEST_HOME/.dsh}" "$TEST_HOME/.dsh-tui"; do
+            [[ -d "$state_path" ]]
+            case "$backend" in
+                bwrap)
+                    # Verify the mount is writable, including on first launch.
+                    [[ "$output" == *$'--bind\n'"$state_path"$'\n'"$state_path"$'\n'* ]]
+                    ;;
+                firejail) grep -Fxq -- "--read-write=$state_path" <<<"$output" ;;
+            esac
+        done
+        [[ "$(tail -n 1 <<<"$output")" == --test-argument ]]
+    fi
+    # Default flags must follow the user's arguments: opencode rejects
+    # `opencode --standalone --auto run "..."` but accepts them after `run`.
+    local user_line default_line
+    user_line="$(grep -Fxn -- "--test-argument" <<<"$output" | cut -d: -f1)"
     for default_flag in "$@"; do
-        grep -Fxq -- "$default_flag" <<<"$output"
+        default_line="$(grep -Fxn -- "$default_flag" <<<"$output" | cut -d: -f1)"
+        [ -n "$default_line" ] || { echo "FAIL: $backend $launcher missing $default_flag" >&2; return 1; }
+        [ "$default_line" -gt "$user_line" ] || {
+            echo "FAIL: $backend $launcher places $default_flag before user arguments" >&2
+            return 1
+        }
     done
     echo "PASS: $backend $launcher"
 }
@@ -64,4 +90,8 @@ for backend in bwrap firejail; do
     run_case "$backend" qwenjail     qwen     --yolo
     run_case "$backend" grokjail     grok     --yolo
     run_case "$backend" opencodejail opencode --standalone --auto
+    run_case "$backend" dshjail      dsh-tui
+    DSH_HOME="$TEST_HOME/custom-dsh-$backend" run_case "$backend" dshjail dsh-tui
+    AI_JAIL_AGENT=dsh run_case "$backend" pijail dsh-tui
+    AI_JAIL_AGENT=dsh-tui run_case "$backend" pijail dsh-tui
 done

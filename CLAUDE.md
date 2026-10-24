@@ -2,14 +2,14 @@
 
 ## Project overview
 
-OS-level sandbox for running Claude Code, Pi, Qwen Code, Grok, and OpenCode with broad tool permissions. Bash scripts only; no build process.
+OS-level sandbox for running Claude Code, Pi, Qwen Code, Grok, OpenCode, and DSH TUI with broad tool permissions. Bash scripts only; no build process.
 
 ## Files
 
 - `agent-sandbox.sh` — Main Bubblewrap script. Selects an agent from its invocation name or `AI_JAIL_AGENT`.
 - `claude-firejail.sh` — Firejail equivalent of `agent-sandbox.sh`. Same agent selection, same commands.
 - `claude-sandbox.sh` — Backward-compatible Claude-only Bubblewrap launcher.
-- `install.sh` — Installs `claudejail`, `pijail`, `qwenjail`, `grokjail`, and `opencodejail` for the current user (`bwrap` default, or `firejail`).
+- `install.sh` — Installs `claudejail`, `pijail`, `qwenjail`, `grokjail`, `opencodejail`, and `dshjail` for the current user (`bwrap` default, or `firejail`).
 - `test-launchers.sh` — Mock launch tests for both backends that do not start models.
 - `sandbox-test.sh` — Verification script. Run inside the sandbox to confirm isolation works.
 - `TODO.md` — Remaining hardening tasks.
