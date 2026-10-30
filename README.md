@@ -6,7 +6,7 @@ The installed commands are `claudejail`, `pijail`, `qwenjail`, `grokjail`, `open
 
 ## Why
 
-Claude Code's built-in sandbox is a software guardrail. This is a hardware one. When you run Claude with `--dangerously-skip-permissions`, you're trusting the model not to do anything destructive. This script adds a second layer: even if Claude decides to `rm -rf /` or read your GPG keys, the kernel blocks it.
+An agent's built-in permission prompts are a software guardrail. This is an OS-level one. When you run an agent with `--dangerously-skip-permissions`, `--yolo`, or `--auto`, you're trusting the model not to do anything destructive. These launchers add a second layer: even if the agent decides to `rm -rf ~` or read your GPG keys, the kernel blocks it.
 
 ## How it works
 
@@ -18,7 +18,7 @@ Claude Code's built-in sandbox is a software guardrail. This is a hardware one. 
 │  │  bwrap / firejail jail     │  │
 │  │                            │  │
 │  │  ┌──────────────────────┐  │  │
-│  │  │  Claude Code         │  │  │
+│  │  │  AI coding agent     │  │  │
 │  │  │  (dangerous perms)   │  │  │
 │  │  └──────────────────────┘  │  │
 │  │                            │  │
@@ -39,24 +39,24 @@ Claude Code's built-in sandbox is a software guardrail. This is a hardware one. 
 
 | Command | Agent state (read-write) | Default agent arguments |
 |---|---|---|
-| `claudejail` | `~/.claude`, Claude local data | `--dangerously-skip-permissions` |
+| `claudejail` | `~/.claude`, `~/.claude.json`, `~/.config/claude`, `~/.local/share/claude`, `~/.local/share/claude-code` | `--dangerously-skip-permissions` |
 | `pijail` | `~/.pi` | none (Pi tools run directly) |
 | `qwenjail` | `~/.qwen` | `--yolo` |
 | `grokjail` | `~/.grok` | `--yolo` |
-| `opencodejail` | `~/.config/opencode`, `~/.local/share/opencode`, `~/.local/state/opencode`, `~/.cache/opencode` | `--standalone --auto` |
+| `opencodejail` | `~/.config/opencode`, `~/.local/share/opencode`, `~/.local/state/opencode`, `~/.cache/opencode` (plus `~/.opencode` read-only) | `--standalone --auto` |
 | `dshjail` | `~/.dsh`, `$DSH_HOME` (if set), `~/.dsh-tui` | none (runs `dsh-tui`) |
 
 DSH state directories are created before launch so first-run profile setup and UI settings persist. `AI_JAIL_AGENT=dsh` (or `dsh-tui`) also selects this launcher. DSH's configured permission settings apply; the launcher adds no approval flags.
 
 OpenCode gets `--standalone` because by default it talks to a background service on the host. That service would execute tools **outside** the jail, defeating the sandbox. `--auto` is OpenCode's equivalent of skipping permission prompts.
 
-NVIDIA, DRI, and nvhost devices are passed through when present, so agents may connect to local model servers or launch GPU-backed local tooling. Network access, including localhost, remains open.
+With bubblewrap, NVIDIA, DRI, and nvhost devices are passed through into the private `/dev` when present (firejail leaves the host `/dev` visible), so agents may connect to local model servers or launch GPU-backed local tooling. Network access, including localhost, remains open.
 
 ## Two sandbox backends
 
-This project provides two scripts with identical security policies but different sandboxing tools:
+This project provides two launchers with the same filesystem policy but different sandboxing tools. `claude-sandbox.sh` is a legacy Claude-only bubblewrap script kept for backward compatibility.
 
-| | `claude-sandbox.sh` (bubblewrap) | `claude-firejail.sh` (firejail) |
+| | `agent-sandbox.sh` (bubblewrap) | `claude-firejail.sh` (firejail) |
 |---|---|---|
 | **How it sandboxes** | Builds filesystem from scratch — starts empty, explicitly mounts what's needed | Starts with full filesystem, locks it down with whitelist + read-only |
 | **Runs as** | Unprivileged user | Setuid root binary |
@@ -65,6 +65,7 @@ This project provides two scripts with identical security policies but different
 | **If the tool has a bug** | Attacker stays as your user | Attacker gets real root (setuid) |
 | **CVE history** | Very few | Multiple privilege escalation CVEs |
 | **PID isolation** | Yes (`--unshare-pid`) | No (with `--noprofile`) |
+| **Syscall/capability hardening** | None beyond user namespace | `--seccomp`, `--caps.drop=all`, `--nonewprivs`, `--noroot` |
 | **Home isolation** | tmpfs overlay — unlisted paths don't exist | Whitelist mode — unlisted paths are hidden |
 | **System paths** | Explicit read-only mounts | `--read-only=/` blanket, then selective write-back |
 | **Best for** | Maximum security, you control every mount | Quick setup, no kernel config needed |
@@ -88,6 +89,8 @@ sudo apt install firejail       # Debian/Ubuntu
 ./install.sh              # bubblewrap backend
 ./install.sh firejail     # firejail backend (use where bwrap is blocked by AppArmor)
 ```
+
+The installer copies the chosen launcher to `~/.local/lib/ai-agent-jail/` and symlinks the `*jail` commands into `~/.local/bin`. Override these with `AI_JAIL_INSTALL_DIR` and `AI_JAIL_BIN_DIR`. Re-run it after pulling changes or to switch backends.
 
 ## AppArmor setup (bubblewrap only)
 
@@ -116,7 +119,7 @@ User namespaces let a process become "root" inside an isolated namespace. Normal
 
 The practical risk is low: exploiting this requires an attacker who already has local code execution on your machine **and** an unpatched kernel namespace vulnerability. If an attacker already has local access as your user, they can already read your files, steal your keys, and persist in your shell profile. The namespace path just adds a theoretical route to root on top of that.
 
-Running Claude Code with dangerous permissions **without** this sandbox gives it unrestricted access to your entire filesystem, SSH keys, and credentials. The sandbox significantly reduces that blast radius. The tradeoff — a small increase in kernel attack surface for a large reduction in filesystem exposure — nets out positive.
+Running an agent with dangerous permissions **without** this sandbox gives it unrestricted access to your entire filesystem, SSH keys, and credentials. The sandbox significantly reduces that blast radius. The tradeoff — a small increase in kernel attack surface for a large reduction in filesystem exposure — nets out positive.
 
 ### Checking if you need this
 
@@ -148,35 +151,34 @@ AI_JAIL_AGENT=dsh ./agent-sandbox.sh
 ./claude-sandbox.sh            # backward-compatible Claude launcher
 
 # Firejail version (claude by default, any agent via AI_JAIL_AGENT)
-./claude-firejail.sh                                    # current directory
+./claude-firejail.sh                                    # Claude in current directory
 ./claude-firejail.sh /path/to/project                   # specific project
-./claude-firejail.sh /path/to/project --print "do X"    # pass args to claude
+./claude-firejail.sh /path/to/project --print "do X"    # pass args to the agent
 AI_JAIL_AGENT=opencode ./claude-firejail.sh             # OpenCode under firejail
 ```
 
 ## Security policy
 
-Both scripts enforce the same filesystem policy:
+Both launchers enforce the same filesystem policy:
 
 ### Read-write (project + config)
 
 | Path | Why |
 |------|-----|
 | `$PROJECT_DIR` | The project you're working on |
-| Selected agent state (`~/.claude`, `~/.pi`, `~/.qwen`, `~/.grok`, the OpenCode dirs, or `~/.dsh`, `$DSH_HOME`, and `~/.dsh-tui`) | Config, auth, and session state |
+| Selected agent's state (see [Agent support](#agent-support)) | Config, auth, and session state |
 | `~/.gitconfig`, `~/.config/git` | Git identity |
 | `~/.npm`, `~/.npm-global` | npm cache and global packages |
 | `~/.gradle` | Gradle build cache |
-| `~/.kanban-code` | Kanban Code app state |
-| `~/.local/share/claude-code` | Claude Code local data |
+| `~/.kanban-code` | Kanban Code app state (bubblewrap only) |
 
 ### Read-only (toolchains + system)
 
 | Path | Why |
 |------|-----|
-| `/usr`, `/lib`, `/lib64`, `/etc`, `/bin`, `/sbin`, `/opt` | System binaries and libraries |
-| `~/.ssh`, `~/.aws` | Credentials (read-only, not writable) |
-| `~/.nvm`, `~/.fnm`, `~/.cargo/bin`, `~/.rustup`, `~/.pyenv` | Language toolchains |
+| `/usr`, `/lib`, `/lib64`, `/etc`, `/bin`, `/sbin`, `/opt` | System binaries and libraries (firejail: all of `/` read-only) |
+| `~/.ssh`, `~/.aws`, `~/.config/gh` | Credentials (read-only, not writable) |
+| `~/.nvm`, `~/.fnm`, `~/.cargo/bin`, `~/.rustup`, `~/.pyenv`, `~/.config/nvm`, `~/.config/pip` | Language toolchains and their config |
 | `~/.local/bin`, `~/.local/lib` | User-installed tools |
 | `~/.config/tmux`, `~/.tmux` | Tmux plugins (e.g. hooks for Claude Code integration) |
 | `$JAVA_HOME`, `$ANDROID_HOME` | JDK and Android SDK (if set) |
@@ -200,28 +202,32 @@ Both scripts enforce the same filesystem policy:
 | `$HOME` | tmpfs overlay (unlisted paths don't exist) | Whitelist (unlisted paths hidden) |
 | PID namespace | Isolated (`--unshare-pid`) | Not isolated |
 | Parent death | Sandbox killed (`--die-with-parent`) | Process outlives parent |
+| Seccomp / capabilities | Not filtered | Seccomp filter, all capabilities dropped |
+| SSH agent | Socket dir forwarded if `SSH_AUTH_SOCK` is set | Socket dir forwarded if `SSH_AUTH_SOCK` is set |
 | System paths | Explicit RO mounts | `--read-only=/` blanket |
 
-### Environment variables passed through
+### Environment variables
 
-- `HOME`, `USER`, `TERM`, `PATH`, `LANG`, `SHELL`
+**Bubblewrap** inherits the full host environment and explicitly sets `HOME`, `USER`, `TERM`, `PATH`, `LANG`, and `SHELL`. Provider API keys, local model endpoints, and other agent settings work without extra configuration. The legacy `claude-sandbox.sh` has commented-out `CHROME_DEVEL_SANDBOX` and `PLAYWRIGHT_CHROMIUM_SANDBOX` lines to uncomment if Chrome crashes inside the sandbox.
+
+**Firejail** passes through only an explicit list, and only when set:
+
+- `TERM`, `PATH`, `LANG`, `SHELL`, `SSH_AUTH_SOCK`
 - `AWS_PROFILE`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
 - `JAVA_HOME`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`
-- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`
 
-Bubblewrap version also has commented-out `CHROME_DEVEL_SANDBOX` and `PLAYWRIGHT_CHROMIUM_SANDBOX` env vars — uncomment if Chrome crashes inside the sandbox.
-
-Bubblewrap inherits the rest of the host environment, so local model endpoint variables and provider-specific API keys continue to work.
+To expose another variable under firejail, add an `--env=` line in `claude-firejail.sh`.
 
 ## Verifying the sandbox
 
 Run the test script inside the sandbox to confirm isolation is working:
 
 ```bash
-# Launch a shell in the sandbox instead of claude
-bwrap [your args] /bin/bash sandbox-test.sh
+# Temporarily change AGENT_COMMAND to bash in the launcher, start it, then:
+bash sandbox-test.sh
 
-# Or run claude-sandbox.sh and paste commands from sandbox-test.sh manually
+# Or ask a jailed agent to run sandbox-test.sh and report the output
 ```
 
 The test checks filesystem write restrictions, sensitive path blocking, network access, and tool availability.
@@ -234,19 +240,22 @@ Launcher selection and arguments can be tested without loading any model or cons
 
 ## Customizing
 
-Edit the arrays at the top of either script:
+Edit the arrays in `agent-sandbox.sh` and/or `claude-firejail.sh`:
 
-- **`RW_PATHS`** — directories Claude can read and write
-- **`RO_PATHS`** — directories Claude can read but not modify
-- **`DENY_PATHS`** — directories that are always hidden/blocked
+- **`RW_PATHS`** — paths the agent can read and write
+- **`RO_PATHS`** — paths the agent can read but not modify
+- **`DENY_PATHS`** — paths that are always hidden/blocked
 
-Paths that don't exist are silently skipped.
+Per-agent state lives in the agent `case` statement (`AGENT_RW_PATHS`, `AGENT_RO_PATHS`, `DEFAULT_AGENT_ARGS`). To add an agent, add a `case` arm to both launchers, then add its command to `install.sh` and `test-launchers.sh`.
+
+Paths that don't exist are silently skipped. Re-run `./install.sh` after editing so the installed copy picks up the change.
 
 ## Known limitations
 
-- **Network is open** — filesystem restrictions don't prevent data exfiltration. If a prompt injection convinces Claude to `curl` your SSH keys somewhere, the sandbox won't stop it. Consider `--unshare-net` (bwrap) or `--net=none` (firejail) if you don't need network.
+- **Network is open** — filesystem restrictions don't prevent data exfiltration. If a prompt injection convinces the agent to `curl` your SSH keys somewhere, the sandbox won't stop it. Consider `--unshare-net` (bwrap) or `--net=none` (firejail) if you don't need network.
 - **Linux only** — neither tool works on macOS or Windows. For macOS, consider `sandbox-exec` or Docker.
-- **No seccomp** — dangerous syscalls aren't filtered. Could be added with `--seccomp` (bwrap) or firejail's built-in seccomp support.
+- **Credentials are readable** — `~/.ssh`, `~/.aws`, and `~/.config/gh` are mounted read-only so git and cloud tools work, which means the agent can read them. Remove them from `RO_PATHS` if you don't need them.
+- **No seccomp under bubblewrap** — dangerous syscalls aren't filtered. Could be added with `bwrap --seccomp`; the firejail launcher already enables firejail's seccomp filter.
 
 ## License
 
